@@ -4,13 +4,14 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.views.decorators.http import require_POST
 from django.core.mail import send_mail
 from django.db.models import Count
+from django.contrib.postgres.search import SearchVector, SearchRank, SearchQuery
 from taggit.models import Tag
 # from django.views.generic import ListView
 from .models import Post
-from .forms import EmailPostForm, CommentForm
+from .forms import EmailPostForm, CommentForm, SearchForm
 
 
-def post_list(request: HttpRequest, tag_slug:Tag.slug=None):
+def post_list(request: HttpRequest, tag_slug=None):
     post_list = Post.published.all()
 
     tag = None
@@ -68,7 +69,7 @@ def post_share(request: HttpRequest, post_id):
             subject = f"{cd['name']} recommends you read {post.title}"
             message = f"Read {post.title} at {post_url}\n\n{cd['name']}\'s comments: {cd['comments']}"
             sent = True
-            send_mail(subject, message, 'your_account@gmail.com', [cd['to']])
+            send_mail(subject, message, 'vasilsemen04@gmail.com', [cd['to']])
     else:
         form = EmailPostForm()
 
@@ -97,12 +98,20 @@ def post_comment(request: HttpRequest, post_id):
     return render(request, 'blog/post/comment.html', context)
 
 
-# class PostListView(ListView):
-#     """
-#     Альтернативное представление списка постов
-#     """
+def post_search(request: HttpRequest):
+    form = SearchForm()
+    query = None
+    results = []
 
-#     queryset = Post.published.all()
-#     context_object_name = 'posts'
-#     paginate_by = 3
-#     template_name = 'blog/post/list.html'
+    if 'query' in request.GET:
+        form = SearchForm(request.GET)
+        if form.is_valid():
+            query = form.cleaned_data['query']
+            search_vector = SearchVector('title', 'body')
+            search_query = SearchQuery(query)
+            results = Post.published.annotate(
+                search = search_vector,
+                rank = SearchRank(search_vector, search_query)
+            ).filter(search=search_query).order_by('-rank')
+
+    return render(request, 'blog/post/search.html', context={'form': form, 'query': query, 'results': results})
